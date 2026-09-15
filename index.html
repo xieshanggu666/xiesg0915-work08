@@ -198,7 +198,38 @@
   }
   .badge.present { background: var(--present-bg); color: var(--present); }
   .badge.absent { background: var(--absent-bg); color: var(--absent); }
+  .badge-lead {
+    display: inline-block;
+    background: #fef3c7; color: #b45309;
+    border-radius: 999px; padding: 1px 8px;
+    font-size: 11px; white-space: nowrap;
+    vertical-align: 1px;
+  }
+  .tag-lead { background: #fef3c7; color: #b45309; }
   .center { text-align: center; }
+
+  /* ---------- 活动排班 ---------- */
+  details.sched-card { padding: 0; overflow: hidden; }
+  details.sched-card > summary {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 14px 18px;
+    cursor: pointer;
+    list-style: none;
+  }
+  details.sched-card > summary::-webkit-details-marker { display: none; }
+  details.sched-card[open] > summary { border-bottom: 1px solid var(--border); }
+  .sched-title { font-size: 15px; font-weight: 600; }
+  .sched-status { margin-left: auto; font-size: 13px; color: var(--muted); }
+  .sched-status b { color: var(--text); }
+  .sched-body { padding: 14px 18px 18px; }
+  .cell-lead { width: 110px; }
+  .lead-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; color: var(--muted);
+    cursor: pointer; white-space: nowrap;
+  }
+  .lead-toggle input { accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer; }
+  tr.is-unassigned .inp-sched-role::placeholder { color: #d97706; }
   .history-table th, .history-table td { font-size: 13px; }
 
   .add-member { display: flex; gap: 10px; }
@@ -271,6 +302,12 @@
     }
     .reg-table .seg { display: flex; width: 100%; }
     .reg-table .seg-btn { flex: 1; padding: 10px 16px; font-size: 14px; }
+    .reg-table .cell-lead { width: auto; }
+
+    /* 排班面板窄屏堆叠 */
+    details.sched-card > summary { padding: 12px 14px; gap: 6px 10px; }
+    .sched-body { padding: 12px 14px 14px; }
+    .sched-status { margin-left: 0; flex-basis: 100%; }
 
     /* 历史 / 汇总表：保持表格，容器内横向滑动 */
     .table-wrap { -webkit-overflow-scrolling: touch; }
@@ -290,7 +327,7 @@
 <header class="app-header">
   <div class="container">
     <h1>活动出勤登记</h1>
-    <p>活动当天登记成员到场与缺席情况，按成员汇总参与次数、参与时长与承担分工，随时查历史参与情况</p>
+    <p>活动前预排分工与负责人，活动当天登记成员到场与缺席情况，按成员汇总参与次数、参与时长与承担分工，随时查历史参与情况</p>
   </div>
 </header>
 
@@ -346,16 +383,18 @@ let state = load();
 let currentTab = 'register';
 let currentActivityId = sortedActivities()[0]?.id ?? null;
 let registerGroupFilter = 'all';
+let schedOpenState = {};  // 各活动排班面板的展开状态（本次会话内有效）
 
 function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const d = JSON.parse(raw);
-      return { members: d.members || [], activities: d.activities || [], records: d.records || [], groups: d.groups || [] };
+      return { members: d.members || [], activities: d.activities || [], records: d.records || [],
+               groups: d.groups || [], schedules: d.schedules || [] };
     }
   } catch (e) { console.warn('读取本地数据失败', e); }
-  return { members: [], activities: [], records: [], groups: [] };
+  return { members: [], activities: [], records: [], groups: [], schedules: [] };
 }
 function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 
@@ -365,6 +404,28 @@ function sortedActivities() {
 }
 function getRecord(aid, mid) {
   return state.records.find(r => r.activityId === aid && r.memberId === mid);
+}
+function getSchedule(aid, mid) {
+  return state.schedules.find(s => s.activityId === aid && s.memberId === mid);
+}
+// 该成员是否已排班（填了分工或被指定为负责人）
+function isScheduled(sch) {
+  return !!(sch && ((sch.role || '').trim() || sch.lead));
+}
+function upsertSchedule(aid, mid, patch) {
+  let sch = getSchedule(aid, mid);
+  if (!sch) {
+    sch = { activityId: aid, memberId: mid, role: '', lead: false };
+    state.schedules.push(sch);
+  }
+  Object.assign(sch, patch);
+  // 分工为空且不是负责人时视为未排班，移除该条
+  if (!isScheduled(sch)) {
+    state.schedules = state.schedules.filter(s => s !== sch);
+    sch = null;
+  }
+  save();
+  return sch;
 }
 function groupName(gid) {
   return state.groups.find(g => g.id === gid)?.name || '未分组';
@@ -376,14 +437,29 @@ function visibleMembers() {
 }
 function upsertRecord(aid, mid, patch) {
   let rec = getRecord(aid, mid);
+  const wasPresent = rec?.status === 'present';
   if (!rec) {
-    rec = { activityId: aid, memberId: mid, status: null, hours: null, role: '' };
+    rec = { activityId: aid, memberId: mid, status: null, hours: null, role: '', lead: false };
     state.records.push(rec);
   }
   Object.assign(rec, patch);
-  if (rec.status === 'absent') { rec.hours = null; rec.role = ''; }
+  if (rec.status === 'absent') { rec.hours = null; rec.role = ''; rec.lead = false; }
+  // 排班自动带入：首次标记到场且分工为空时，补上排班的分工与负责人
+  if (rec.status === 'present' && !wasPresent && !(rec.role || '').trim()) {
+    const sch = getSchedule(aid, mid);
+    if (sch) { rec.role = sch.role || ''; rec.lead = !!sch.lead; }
+  }
   save();
   return rec;
+}
+// 排班变更后，若该成员本次已登记到场但分工仍为空，自动补上排班内容
+function backfillRecordFromSchedule(aid, mid) {
+  const rec = getRecord(aid, mid);
+  const sch = getSchedule(aid, mid);
+  if (!rec || rec.status !== 'present' || (rec.role || '').trim()) return;
+  rec.role = sch ? (sch.role || '') : '';
+  rec.lead = !!(sch && sch.lead);
+  save();
 }
 
 /* ---------- 成员汇总数据 ---------- */
@@ -391,6 +467,7 @@ function memberStats(mid) {
   const rs = state.records.filter(r => r.memberId === mid && r.status);
   const present = rs.filter(r => r.status === 'present');
   const hours = present.reduce((s, r) => s + (Number(r.hours) || 0), 0);
+  const leadCount = present.filter(r => r.lead).length;
   const roleMap = new Map();
   present.forEach(r => {
     const t = (r.role || '').trim();
@@ -400,7 +477,7 @@ function memberStats(mid) {
     .map(r => ({ r, a: state.activities.find(a => a.id === r.activityId) }))
     .filter(x => x.a)
     .sort((x, y) => y.a.date.localeCompare(x.a.date) || y.a.createdAt - x.a.createdAt);
-  return { presentCount: present.length, absentCount: rs.length - present.length, hours, roleMap, history };
+  return { presentCount: present.length, absentCount: rs.length - present.length, hours, leadCount, roleMap, history };
 }
 
 /* ---------- Tab 切换 ---------- */
@@ -426,7 +503,7 @@ function renderRegister() {
   const act = acts.find(a => a.id === currentActivityId) || null;
 
   const roleSet = [...new Set(
-    state.records.map(r => (r.role || '').trim()).filter(Boolean))];
+    [...state.records, ...state.schedules].map(r => (r.role || '').trim()).filter(Boolean))];
   $('#role-options').innerHTML = roleSet.map(r => `<option value="${esc(r)}"></option>`).join('');
 
   root.innerHTML = card(`
@@ -446,7 +523,7 @@ function renderRegister() {
       <button class="btn btn-primary" id="btn-create-act">创建并登记</button>
       <button class="btn btn-ghost" id="btn-cancel-act">取消</button>
     </div>
-  `) + (act ? registerCard(act) : card(emptyHint('还没有活动，点击「＋ 新建活动」开始登记出勤。')));
+  `) + (act ? scheduleCard(act) + registerCard(act) : card(emptyHint('还没有活动，点击「＋ 新建活动」开始登记出勤。')));
 
   $('#activity-select').addEventListener('change', e => {
     currentActivityId = e.target.value || null;
@@ -460,7 +537,7 @@ function renderRegister() {
   $('#btn-create-act').addEventListener('click', createActivity);
   $('#new-act-name').addEventListener('keydown', e => { if (e.key === 'Enter') createActivity(); });
 
-  if (act) bindRegisterCard(act);
+  if (act) { bindScheduleCard(act); bindRegisterCard(act); }
 }
 
 function createActivity() {
@@ -473,6 +550,141 @@ function createActivity() {
   currentActivityId = a.id;
   save();
   renderRegister();
+}
+
+/* ---------- 活动排班 ---------- */
+function schedStatusHtml(act) {
+  const total = state.members.length;
+  const assigned = state.members.filter(m => isScheduled(getSchedule(act.id, m.id))).length;
+  const un = total - assigned;
+  const hasLead = state.members.some(m => getSchedule(act.id, m.id)?.lead);
+  let html = `已排 <b>${assigned}</b>/${total} 人`;
+  if (un) html += `　<span class="reg-hint">${un} 人未排班</span>`;
+  else if (total) html += `　<span class="c-present">已全部排好</span>`;
+  if (total && !hasLead) html += `　<span class="reg-hint">未指定负责人</span>`;
+  return html;
+}
+
+function schedNamesHtml(act) {
+  const rest = state.members.filter(m => !isScheduled(getSchedule(act.id, m.id)));
+  if (!rest.length) return '';
+  const names = rest.slice(0, 4).map(m => esc(m.name)).join('、');
+  return `未排班：${names}${rest.length > 4 ? ` 等 ${rest.length} 人` : ''}`;
+}
+
+function scheduleCard(act) {
+  if (!state.members.length) return '';
+  const hasRecords = state.records.some(r => r.activityId === act.id);
+  // 还没开始登记时默认展开，方便建完活动先排班；开始登记后默认收起
+  const isOpen = schedOpenState[act.id] ?? !hasRecords;
+  const hasAny = state.schedules.some(s => s.activityId === act.id);
+
+  const rows = state.members.map(m => {
+    const sch = getSchedule(act.id, m.id);
+    return `<tr data-mid="${m.id}" class="${isScheduled(sch) ? '' : 'is-unassigned'}">
+      <td class="cell-name">${esc(m.name)}${sch?.lead ? ' <span class="badge-lead">负责人</span>' : ''}${state.groups.length
+        ? ` <span class="muted" style="font-size:12px">${esc(groupName(m.groupId))}</span>` : ''}</td>
+      <td class="cell-role" data-label="分工">
+        <input type="text" class="inp-sched-role" list="role-options" placeholder="未安排分工"
+          maxlength="30" value="${esc(sch?.role || '')}">
+      </td>
+      <td class="cell-lead" data-label="负责人">
+        <label class="lead-toggle"><input type="checkbox" class="inp-sched-lead"
+          ${sch?.lead ? 'checked' : ''}> 负责人</label>
+      </td>
+    </tr>`;
+  }).join('');
+
+  return `<details class="card sched-card" id="sched-details" ${isOpen ? 'open' : ''}>
+    <summary>
+      <span class="sched-title">活动排班</span>
+      <span class="muted" style="font-size:12px">排好的分工与负责人会在登记时自动带入</span>
+      <span class="hint-link">展开 ›</span>
+      <span id="sched-status" class="sched-status">${schedStatusHtml(act)}</span>
+    </summary>
+    <div class="sched-body">
+      <div class="table-wrap">
+        <table class="reg-table sched-table">
+          <thead><tr>
+            <th>成员</th>
+            <th class="cell-role">分工</th>
+            <th class="cell-lead">负责人</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div class="reg-footer">
+        <span id="sched-names" class="reg-hint">${schedNamesHtml(act)}</span>
+        <span class="muted">排班随活动保存，现场登记时仍可改</span>
+        <button class="btn btn-ghost" id="btn-clear-sched"
+          ${hasAny ? '' : 'disabled title="暂无排班"'}>清除排班</button>
+      </div>
+    </div>
+  </details>`;
+}
+
+function bindScheduleCard(act) {
+  const details = $('#sched-details');
+  if (!details) return;
+  details.addEventListener('toggle', () => { schedOpenState[act.id] = details.open; });
+
+  $$('#sched-details tbody tr').forEach(tr => {
+    const mid = tr.dataset.mid;
+    const roleInput = $('.inp-sched-role', tr);
+    const leadInput = $('.inp-sched-lead', tr);
+    const onChange = () => {
+      upsertSchedule(act.id, mid, { role: roleInput.value, lead: leadInput.checked });
+      backfillRecordFromSchedule(act.id, mid);
+      tr.classList.toggle('is-unassigned', !isScheduled(getSchedule(act.id, mid)));
+      refreshSchedStatus(act);
+      syncRegRowFromSchedule(act.id, mid);
+    };
+    roleInput.addEventListener('input', onChange);
+    leadInput.addEventListener('change', onChange);
+  });
+
+  $('#btn-clear-sched').addEventListener('click', () => {
+    if (!confirm(`确定清除「${act.name}」的全部排班？已登记的出勤记录不受影响。`)) return;
+    state.schedules = state.schedules.filter(s => s.activityId !== act.id);
+    save();
+    renderRegister();
+  });
+}
+
+function refreshSchedStatus(act) {
+  const el = $('#sched-status');
+  if (el) el.innerHTML = schedStatusHtml(act);
+  const names = $('#sched-names');
+  if (names) names.innerHTML = schedNamesHtml(act);
+  const btn = $('#btn-clear-sched');
+  if (btn) {
+    const hasAny = state.schedules.some(s => s.activityId === act.id);
+    btn.disabled = !hasAny;
+    if (hasAny) btn.removeAttribute('title');
+    else btn.title = '暂无排班';
+  }
+}
+
+// 排班变更后不重渲染整页，这里单独同步登记表中该行的负责人徽章与分工显示
+function syncRegRowFromSchedule(aid, mid) {
+  const tr = $(`#reg-table tr[data-mid="${mid}"]`);
+  if (!tr) return;
+  const sch = getSchedule(aid, mid);
+  const rec = getRecord(aid, mid);
+  const roleInput = $('.inp-role', tr);
+  if (roleInput) {
+    roleInput.placeholder = sch?.role ? `排班：${sch.role}` : '承担的分工，如：主持';
+    // 已登记到场的记录若被自动回填，同步显示到输入框
+    if (rec && rec.status === 'present') roleInput.value = rec.role || '';
+  }
+  const nameCell = $('.cell-name', tr);
+  const badge = $('.badge-lead', nameCell);
+  const showLead = !!(rec?.lead || sch?.lead);
+  if (showLead && !badge) {
+    nameCell.insertAdjacentHTML('beforeend', ' <span class="badge-lead">负责人</span>');
+  } else if (!showLead && badge) {
+    badge.remove();
+  }
 }
 
 function registerCard(act) {
@@ -493,8 +705,10 @@ function registerCard(act) {
   const rows = mems.map(m => {
     const r = getRecord(act.id, m.id);
     const st = r?.status;
+    const sch = getSchedule(act.id, m.id);
+    const isLead = !!(r?.lead || sch?.lead);
     return `<tr data-mid="${m.id}">
-      <td class="cell-name">${esc(m.name)}${showGroup && !scoped
+      <td class="cell-name">${esc(m.name)}${isLead ? ' <span class="badge-lead">负责人</span>' : ''}${showGroup && !scoped
         ? ` <span class="muted" style="font-size:12px">${esc(groupName(m.groupId))}</span>` : ''}</td>
       <td>
         <div class="seg">
@@ -509,7 +723,8 @@ function registerCard(act) {
           ${st === 'absent' ? 'disabled' : ''}>
       </td>
       <td class="cell-role" data-label="承担分工">
-        <input type="text" class="inp-role" list="role-options" placeholder="承担的分工，如：主持" maxlength="30"
+        <input type="text" class="inp-role" list="role-options"
+          placeholder="${sch?.role ? `排班：${esc(sch.role)}` : '承担的分工，如：主持'}" maxlength="30"
           value="${st === 'present' ? esc(r.role || '') : ''}"
           ${st === 'absent' ? 'disabled' : ''}>
       </td>
@@ -537,7 +752,7 @@ function registerCard(act) {
       : mems.length === 0
         ? emptyHint('当前小组暂无成员，可在「成员管理」中为成员设置小组。')
         : `<div class="table-wrap">
-            <table class="reg-table">
+            <table class="reg-table" id="reg-table">
               <thead><tr>
                 <th>成员</th><th>出勤情况</th>
                 <th class="cell-hours">参与时长（小时）</th>
@@ -572,9 +787,10 @@ function regSummaryHtml(act) {
 
 function bindRegisterCard(act) {
   $('#btn-del-activity').addEventListener('click', () => {
-    if (confirm(`确定删除活动「${act.name}」？该活动的出勤登记记录将一并删除。`)) {
+    if (confirm(`确定删除活动「${act.name}」？该活动的排班与出勤登记记录将一并删除。`)) {
       state.activities = state.activities.filter(a => a.id !== act.id);
       state.records = state.records.filter(r => r.activityId !== act.id);
+      state.schedules = state.schedules.filter(s => s.activityId !== act.id);
       currentActivityId = null;
       save();
       renderRegister();
@@ -608,7 +824,7 @@ function bindRegisterCard(act) {
     renderRegister();
   });
 
-  $$('#view-register tbody tr').forEach(tr => {
+  $$('#reg-table tbody tr').forEach(tr => {
     const mid = tr.dataset.mid;
     $$('.seg-btn', tr).forEach(btn => btn.addEventListener('click', () => {
       const rec = getRecord(act.id, mid);
@@ -628,7 +844,7 @@ function bindRegisterCard(act) {
     const ensurePresent = () => {
       const rec = getRecord(act.id, mid);
       if (rec && rec.status === 'present') return false;
-      upsertRecord(act.id, mid, { status: 'present' });
+      const updated = upsertRecord(act.id, mid, { status: 'present' });
       $$('.seg-btn', tr).forEach(b => {
         const on = b.dataset.st === 'present';
         b.classList.toggle('on', on);
@@ -637,6 +853,8 @@ function bindRegisterCard(act) {
       });
       hoursInput.disabled = false;
       roleInput.disabled = false;
+      // 排班自动带入的分工同步显示到输入框
+      if (!roleInput.value && updated.role) roleInput.value = updated.role;
       return true;
     };
 
@@ -729,16 +947,21 @@ function renderSummary() {
     const tags = [...s.roleMap.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([t, c]) => `<span class="tag">${esc(t)}<i>×${c}</i></span>`).join('');
+    const leadTag = s.leadCount
+      ? `<span class="tag tag-lead">负责人<i>×${s.leadCount}</i></span>` : '';
     const histRows = s.history.length
-      ? s.history.map(({ r, a }) => `<tr>
+      ? s.history.map(({ r, a }) => {
+          const roleCell = r.status !== 'present' ? '—'
+            : ((r.role ? esc(r.role) : '') + (r.lead ? ' <span class="badge-lead">负责人</span>' : '')) || '—';
+          return `<tr>
           <td>${esc(a.date)}</td>
           <td>${esc(a.name)}</td>
           <td>${r.status === 'present'
             ? '<span class="badge present">到场</span>'
             : '<span class="badge absent">缺席</span>'}</td>
           <td>${r.status === 'present' ? fmtNum(r.hours) : '—'}</td>
-          <td>${r.status === 'present' ? esc(r.role || '—') : '—'}</td>
-        </tr>`).join('')
+          <td>${roleCell}</td>
+        </tr>`; }).join('')
       : `<tr><td colspan="5" class="muted center">暂无登记记录</td></tr>`;
 
     return `<div class="member-card">
@@ -748,7 +971,7 @@ function renderSummary() {
           ${state.groups.length ? `<span class="tag tag-group">${esc(groupName(m.groupId))}</span>` : ''}
           <span class="stat">参与 <b>${s.presentCount}</b> 次</span>
           <span class="stat">累计 <b>${esc(fmtHours(s.hours))}</b></span>
-          <span class="tags">${tags || '<span class="muted">暂无分工记录</span>'}</span>
+          <span class="tags">${leadTag + tags || '<span class="muted">暂无分工记录</span>'}</span>
           ${s.absentCount ? `<span class="absent-note">缺席 ${s.absentCount} 次</span>` : ''}
           <span class="hint-link">查看历史 ›</span>
         </summary>
@@ -893,6 +1116,7 @@ function renderMembers() {
     if (!confirm(tip)) return;
     state.members = state.members.filter(x => x.id !== m.id);
     state.records = state.records.filter(r => r.memberId !== m.id);
+    state.schedules = state.schedules.filter(s => s.memberId !== m.id);
     save();
     renderMembers();
   }));
