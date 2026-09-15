@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>活动出勤登记</title>
+<style>
+  :root {
+    --primary: #2563eb;
+    --primary-dark: #1d4ed8;
+    --present: #16a34a;
+    --present-bg: #dcfce7;
+    --absent: #dc2626;
+    --absent-bg: #fee2e2;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --bg: #f4f5f7;
+    --card: #ffffff;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .container { max-width: 980px; margin: 0 auto; padding: 0 16px; }
+
+  .app-header {
+    background: linear-gradient(135deg, #1e40af, #2563eb);
+    color: #fff;
+    padding: 28px 0 24px;
+    margin-bottom: 18px;
+  }
+  .app-header h1 { margin: 0 0 6px; font-size: 22px; }
+  .app-header p { margin: 0; opacity: .85; font-size: 13px; }
+
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    appearance: none;
+    border: none;
+    background: none;
+    padding: 10px 18px;
+    font-size: 14px;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    margin-bottom: 14px;
+  }
+  .card h2 { margin: 0 0 12px; font-size: 16px; }
+  .muted { color: var(--muted); font-size: 13px; }
+
+  .btn {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn:hover { border-color: #cbd5e1; background: #f9fafb; }
+  .btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .btn-primary:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
+  .btn-ghost { border-color: transparent; color: var(--muted); }
+  .btn-ghost:hover { color: var(--text); background: #f3f4f6; }
+  .btn-ghost-danger { border-color: transparent; color: var(--absent); }
+  .btn-ghost-danger:hover { background: var(--absent-bg); }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn:disabled:hover { background: #fff; border-color: var(--border); }
+  .btn-ghost:disabled:hover { background: #fff; border-color: transparent; color: var(--muted); }
+
+  input[type="text"], input[type="date"], input[type="number"], select {
+    appearance: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--text);
+    background: #fff;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+  input:disabled { background: #f9fafb; color: #cbd5e1; cursor: not-allowed; }
+
+  .activity-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .activity-bar select { flex: 1; min-width: 220px; }
+  .new-activity-form { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); }
+  .new-activity-form input[type="text"] { flex: 2; min-width: 200px; }
+  .new-activity-form input[type="date"] { flex: 1; min-width: 150px; }
+
+  .reg-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .reg-head h2 { margin: 0 0 2px; }
+  .reg-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  th { font-size: 12px; font-weight: 600; color: var(--muted); background: #f9fafb; }
+  tbody tr:last-child td { border-bottom: none; }
+  .cell-name { font-weight: 500; white-space: nowrap; }
+  .cell-hours { width: 140px; }
+  .cell-role { width: 240px; }
+  .cell-hours input, .cell-role input { width: 100%; }
+
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg-btn {
+    appearance: none;
+    border: none;
+    background: #fff;
+    padding: 6px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .seg-btn + .seg-btn { border-left: 1px solid var(--border); }
+  .seg-btn:hover { background: #f3f4f6; }
+  .seg-btn.on.present { background: var(--present); color: #fff; }
+  .seg-btn.on.absent { background: var(--absent); color: #fff; }
+
+  .reg-footer {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 10px; flex-wrap: wrap;
+    margin-top: 12px; padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 13px; color: var(--muted);
+  }
+  .reg-footer b { color: var(--text); }
+  .reg-hint { color: #b45309; }
+  .inp-over, .inp-over:focus { border-color: #d97706; }
+  .inp-over:focus { box-shadow: 0 0 0 3px rgba(217,119,6,.15); }
+  .c-present { color: var(--present) !important; }
+  .c-absent { color: var(--absent) !important; }
+
+  .empty { text-align: center; color: var(--muted); padding: 28px 12px; }
+
+  .summary-head { margin: 4px 0 12px; }
+  .summary-head h2 { margin: 0 0 4px; font-size: 18px; }
+
+  .member-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  .member-card details > summary {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 14px 16px;
+    cursor: pointer;
+    list-style: none;
+  }
+  .member-card details > summary::-webkit-details-marker { display: none; }
+  .member-card details[open] > summary { border-bottom: 1px solid var(--border); }
+  .m-name { font-weight: 600; min-width: 72px; }
+  .stat { color: #4b5563; white-space: nowrap; }
+  .stat b { color: var(--text); }
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 120px; }
+  .tag {
+    background: #eff6ff; color: #1d4ed8;
+    border-radius: 999px; padding: 2px 10px;
+    font-size: 12px; white-space: nowrap;
+  }
+  .tag i { font-style: normal; opacity: .65; margin-left: 3px; }
+  .tag-group { background: #ecfdf5; color: #047857; }
+  .absent-note { color: var(--absent); font-size: 12px; white-space: nowrap; }
+  .hint-link { color: #9ca3af; font-size: 12px; margin-left: auto; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+  }
+  .badge.present { background: var(--present-bg); color: var(--present); }
+  .badge.absent { background: var(--absent-bg); color: var(--absent); }
+  .center { text-align: center; }
+  .history-table th, .history-table td { font-size: 13px; }
+
+  .add-member { display: flex; gap: 10px; }
+  .add-member input { flex: 1; }
+  .add-member select { max-width: 150px; }
+  .member-group { padding: 5px 8px; font-size: 13px; }
+  .reg-actions select { max-width: 150px; }
+  .member-list { list-style: none; margin: 0; padding: 0; }
+  .member-list li {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 2px;
+    border-bottom: 1px solid var(--border);
+  }
+  .member-list li:last-child { border-bottom: none; }
+  .member-list .muted { margin-right: auto; }
+
+  .app-footer { text-align: center; color: #9ca3af; font-size: 12px; padding: 20px 0 32px; }
+
+  /* ---------- 窄屏（手机）适配 ---------- */
+  @media (max-width: 640px) {
+    .container { padding: 0 12px; }
+    .app-header { padding: 20px 0 16px; margin-bottom: 12px; }
+    .app-header h1 { font-size: 19px; }
+
+    .tabs { gap: 0; }
+    .tab { flex: 1; padding: 10px 6px; text-align: center; }
+
+    .card { padding: 14px; }
+
+    /* 输入框字号提到 16px，避免 iOS 聚焦输入时自动放大页面 */
+    input[type="text"], input[type="date"], input[type="number"], select {
+      font-size: 16px;
+      padding: 10px 12px;
+    }
+    .member-group { font-size: 16px; }
+    .btn { padding: 10px 14px; font-size: 14px; }
+    .btn-sm { padding: 6px 12px; font-size: 13px; }
+
+    /* 表单控件窄屏换行堆叠，不再挤在一行 */
+    .activity-bar select { flex: 1 1 100%; min-width: 0; }
+    .activity-bar .btn { flex: 1 1 auto; }
+    .new-activity-form input[type="text"],
+    .new-activity-form input[type="date"] { flex: 1 1 100%; min-width: 0; }
+    .new-activity-form .btn { flex: 1 1 auto; }
+
+    .reg-head { flex-direction: column; align-items: stretch; }
+    .reg-actions select { max-width: none; flex: 1 1 100%; }
+    .reg-actions .btn { flex: 1 1 auto; }
+
+    /* 登记表：每个成员变成一张卡片，登记时不用左右滑动 */
+    .reg-table, .reg-table tbody, .reg-table tr, .reg-table td { display: block; }
+    .reg-table thead { display: none; }
+    .reg-table tr {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .reg-table tbody tr:last-child { margin-bottom: 0; }
+    .reg-table td { border-bottom: none; padding: 0; }
+    .reg-table td + td { margin-top: 10px; }
+    .reg-table .cell-name { white-space: normal; }
+    .reg-table .cell-hours, .reg-table .cell-role { width: auto; }
+    .reg-table td[data-label]::before {
+      content: attr(data-label);
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .reg-table .seg { display: flex; width: 100%; }
+    .reg-table .seg-btn { flex: 1; padding: 10px 16px; font-size: 14px; }
+
+    /* 历史 / 汇总表：保持表格，容器内横向滑动 */
+    .table-wrap { -webkit-overflow-scrolling: touch; }
+    .history-table { min-width: 560px; }
+
+    .add-member { flex-wrap: wrap; }
+    .add-member input { flex: 1 1 100%; }
+    .add-member select { flex: 1 1 auto; max-width: none; }
+    .add-member .btn { flex: 1 1 auto; }
+
+    .member-card details > summary { gap: 6px 10px; padding: 12px 14px; }
+    .tags { min-width: 0; }
+  }
+</style>
+</head>
+<body>
+<header class="app-header">
+  <div class="container">
+    <h1>活动出勤登记</h1>
+    <p>活动当天登记成员到场与缺席情况，按成员汇总参与次数、参与时长与承担分工，随时查历史参与情况</p>
+  </div>
+</header>
+
+<nav class="tabs container">
+  <button class="tab active" data-tab="register">出勤登记</button>
+  <button class="tab" data-tab="summary">成员汇总</button>
+  <button class="tab" data-tab="members">成员管理</button>
+</nav>
+
+<main class="container">
+  <section id="view-register"></section>
+  <section id="view-summary" hidden></section>
+  <section id="view-members" hidden></section>
+  <datalist id="role-options"></datalist>
+</main>
+
+<footer class="app-footer container">数据保存在本机浏览器中，清除浏览器数据会导致记录丢失</footer>
+
+<script>
+'use strict';
+
+const STORAGE_KEY = 'attendance-app-data-v1';
+const HOURS_STEP = 0.5;  // 参与时长登记步长（小时）
+const MAX_HOURS = 24;    // 单次活动参与时长上限（小时）
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function today() {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+function fmtNum(n) {
+  n = Number(n) || 0;
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 10) / 10);
+}
+function fmtHours(n) { return fmtNum(n) + ' 小时'; }
+// 时长统一按 0.5 小时步长取整，并限制在上限以内
+function normalizeHours(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return { hours: 0, overMax: false };
+  if (n > MAX_HOURS) return { hours: MAX_HOURS, overMax: true };
+  return { hours: Math.round(n / HOURS_STEP) * HOURS_STEP, overMax: false };
+}
+function emptyHint(t) { return `<div class="empty">${esc(t)}</div>`; }
+function card(inner) { return `<div class="card">${inner}</div>`; }
+
+let state = load();
+let currentTab = 'register';
+let currentActivityId = sortedActivities()[0]?.id ?? null;
+let registerGroupFilter = 'all';
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const d = JSON.parse(raw);
+      return { members: d.members || [], activities: d.activities || [], records: d.records || [], groups: d.groups || [] };
+    }
+  } catch (e) { console.warn('读取本地数据失败', e); }
+  return { members: [], activities: [], records: [], groups: [] };
+}
+function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+
+function sortedActivities() {
+  return [...state.activities].sort((a, b) =>
+    b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
+}
+function getRecord(aid, mid) {
+  return state.records.find(r => r.activityId === aid && r.memberId === mid);
+}
+function groupName(gid) {
+  return state.groups.find(g => g.id === gid)?.name || '未分组';
+}
+function visibleMembers() {
+  if (registerGroupFilter === 'all') return state.members;
+  if (registerGroupFilter === 'none') return state.members.filter(m => !m.groupId);
+  return state.members.filter(m => m.groupId === registerGroupFilter);
+}
+function upsertRecord(aid, mid, patch) {
+  let rec = getRecord(aid, mid);
+  if (!rec) {
+    rec = { activityId: aid, memberId: mid, status: null, hours: null, role: '' };
+    state.records.push(rec);
+  }
+  Object.assign(rec, patch);
+  if (rec.status === 'absent') { rec.hours = null; rec.role = ''; }
+  save();
+  return rec;
+}
+
+/* ---------- 成员汇总数据 ---------- */
+function memberStats(mid) {
+  const rs = state.records.filter(r => r.memberId === mid && r.status);
+  const present = rs.filter(r => r.status === 'present');
+  const hours = present.reduce((s, r) => s + (Number(r.hours) || 0), 0);
+  const roleMap = new Map();
+  present.forEach(r => {
+    const t = (r.role || '').trim();
+    if (t) roleMap.set(t, (roleMap.get(t) || 0) + 1);
+  });
+  const history = rs
+    .map(r => ({ r, a: state.activities.find(a => a.id === r.activityId) }))
+    .filter(x => x.a)
+    .sort((x, y) => y.a.date.localeCompare(x.a.date) || y.a.createdAt - x.a.createdAt);
+  return { presentCount: present.length, absentCount: rs.length - present.length, hours, roleMap, history };
+}
+
+/* ---------- Tab 切换 ---------- */
+function switchTab(tab) {
+  currentTab = tab;
+  $$('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  $('#view-register').hidden = tab !== 'register';
+  $('#view-summary').hidden = tab !== 'summary';
+  $('#view-members').hidden = tab !== 'members';
+  if (tab === 'register') renderRegister();
+  if (tab === 'summary') renderSummary();
+  if (tab === 'members') renderMembers();
+}
+$$('.tab').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+
+/* ---------- 出勤登记 ---------- */
+function renderRegister() {
+  const root = $('#view-register');
+  const acts = sortedActivities();
+  if (!acts.some(a => a.id === currentActivityId)) currentActivityId = acts[0]?.id ?? null;
+  if (registerGroupFilter !== 'all' && registerGroupFilter !== 'none' &&
+      !state.groups.some(g => g.id === registerGroupFilter)) registerGroupFilter = 'all';
+  const act = acts.find(a => a.id === currentActivityId) || null;
+
+  const roleSet = [...new Set(
+    state.records.map(r => (r.role || '').trim()).filter(Boolean))];
+  $('#role-options').innerHTML = roleSet.map(r => `<option value="${esc(r)}"></option>`).join('');
+
+  root.innerHTML = card(`
+    <h2>选择活动</h2>
+    <div class="activity-bar">
+      <select id="activity-select" ${acts.length ? '' : 'disabled'}>
+        ${acts.length
+          ? acts.map(a => `<option value="${a.id}" ${a.id === currentActivityId ? 'selected' : ''}>${esc(a.date)}　${esc(a.name)}</option>`).join('')
+          : '<option value="">暂无活动，请先新建</option>'}
+      </select>
+      <button class="btn" id="btn-new-activity">＋ 新建活动</button>
+      ${act ? '<button class="btn btn-ghost-danger" id="btn-del-activity">删除活动</button>' : ''}
+    </div>
+    <div class="new-activity-form" id="new-activity-form" hidden>
+      <input type="text" id="new-act-name" placeholder="活动名称，如：社区志愿服务" maxlength="40">
+      <input type="date" id="new-act-date" value="${today()}">
+      <button class="btn btn-primary" id="btn-create-act">创建并登记</button>
+      <button class="btn btn-ghost" id="btn-cancel-act">取消</button>
+    </div>
+  `) + (act ? registerCard(act) : card(emptyHint('还没有活动，点击「＋ 新建活动」开始登记出勤。')));
+
+  $('#activity-select').addEventListener('change', e => {
+    currentActivityId = e.target.value || null;
+    renderRegister();
+  });
+  $('#btn-new-activity').addEventListener('click', () => {
+    $('#new-activity-form').hidden = false;
+    $('#new-act-name').focus();
+  });
+  $('#btn-cancel-act').addEventListener('click', () => { $('#new-activity-form').hidden = true; });
+  $('#btn-create-act').addEventListener('click', createActivity);
+  $('#new-act-name').addEventListener('keydown', e => { if (e.key === 'Enter') createActivity(); });
+
+  if (act) bindRegisterCard(act);
+}
+
+function createActivity() {
+  const nameEl = $('#new-act-name'), dateEl = $('#new-act-date');
+  const name = nameEl.value.trim(), date = dateEl.value;
+  if (!name) { alert('请填写活动名称'); nameEl.focus(); return; }
+  if (!date) { alert('请选择活动日期'); dateEl.focus(); return; }
+  const a = { id: uid(), name, date, createdAt: Date.now() };
+  state.activities.push(a);
+  currentActivityId = a.id;
+  save();
+  renderRegister();
+}
+
+function registerCard(act) {
+  const mems = visibleMembers();
+  const scoped = registerGroupFilter !== 'all';
+  const showGroup = state.groups.length > 0;
+  const hasMembers = mems.length > 0;
+  const scopeIds = new Set(mems.map(m => m.id));
+  const hasRecords = state.records.some(r => r.activityId === act.id && scopeIds.has(r.memberId));
+
+  const filterSelect = showGroup ? `
+    <select id="group-filter" title="按小组筛选">
+      <option value="all" ${registerGroupFilter === 'all' ? 'selected' : ''}>全部成员</option>
+      ${state.groups.map(g => `<option value="${g.id}" ${registerGroupFilter === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}
+      <option value="none" ${registerGroupFilter === 'none' ? 'selected' : ''}>未分组</option>
+    </select>` : '';
+
+  const rows = mems.map(m => {
+    const r = getRecord(act.id, m.id);
+    const st = r?.status;
+    return `<tr data-mid="${m.id}">
+      <td class="cell-name">${esc(m.name)}${showGroup && !scoped
+        ? ` <span class="muted" style="font-size:12px">${esc(groupName(m.groupId))}</span>` : ''}</td>
+      <td>
+        <div class="seg">
+          <button type="button" class="seg-btn ${st === 'present' ? 'on present' : ''}" data-st="present">到场</button>
+          <button type="button" class="seg-btn ${st === 'absent' ? 'on absent' : ''}" data-st="absent">缺席</button>
+        </div>
+      </td>
+      <td class="cell-hours" data-label="参与时长（小时）">
+        <input type="number" class="inp-hours" min="0" max="${MAX_HOURS}" step="0.5" placeholder="—"
+          title="按 0.5 小时为步长登记，上限 ${MAX_HOURS} 小时"
+          value="${st === 'present' && r.hours != null ? fmtNum(r.hours) : ''}"
+          ${st === 'absent' ? 'disabled' : ''}>
+      </td>
+      <td class="cell-role" data-label="承担分工">
+        <input type="text" class="inp-role" list="role-options" placeholder="承担的分工，如：主持" maxlength="30"
+          value="${st === 'present' ? esc(r.role || '') : ''}"
+          ${st === 'absent' ? 'disabled' : ''}>
+      </td>
+    </tr>`;
+  }).join('');
+
+  return card(`
+    <div class="reg-head">
+      <div>
+        <h2>${esc(act.name)}</h2>
+        <div class="muted">活动日期：${esc(act.date)}</div>
+      </div>
+      <div class="reg-actions">
+        ${filterSelect}
+        <button class="btn btn-ghost" id="btn-all-present"
+          ${hasMembers ? '' : 'disabled title="当前范围暂无成员"'}>${scoped ? '本组全部到场' : '全部到场'}</button>
+        <button class="btn btn-ghost" id="btn-all-absent"
+          ${hasMembers ? '' : 'disabled title="当前范围暂无成员"'}>${scoped ? '本组全部缺席' : '全部缺席'}</button>
+        <button class="btn btn-ghost" id="btn-clear"
+          ${hasRecords ? '' : 'disabled title="当前范围暂无可清除的登记"'}>${scoped ? '清除本组登记' : '清除登记'}</button>
+      </div>
+    </div>
+    ${state.members.length === 0
+      ? emptyHint('还没有成员，请先到「成员管理」添加成员。')
+      : mems.length === 0
+        ? emptyHint('当前小组暂无成员，可在「成员管理」中为成员设置小组。')
+        : `<div class="table-wrap">
+            <table class="reg-table">
+              <thead><tr>
+                <th>成员</th><th>出勤情况</th>
+                <th class="cell-hours">参与时长（小时）</th>
+                <th class="cell-role">承担分工</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+          <div class="reg-footer">
+            <span id="reg-summary">${regSummaryHtml(act)}</span>
+            <span id="reg-hint" class="reg-hint" hidden></span>
+            <span>更改自动保存</span>
+          </div>`}
+  `);
+}
+
+function regSummaryHtml(act) {
+  const mems = visibleMembers();
+  const ids = new Set(mems.map(m => m.id));
+  const recs = state.records.filter(r => r.activityId === act.id && ids.has(r.memberId));
+  const present = recs.filter(r => r.status === 'present').length;
+  const absent = recs.filter(r => r.status === 'absent').length;
+  const total = recs.filter(r => r.status === 'present')
+    .reduce((s, r) => s + (Number(r.hours) || 0), 0);
+  const scope = registerGroupFilter === 'all' ? ''
+    : `（${esc(registerGroupFilter === 'none' ? '未分组' : groupName(registerGroupFilter))}）`;
+  return `${scope}已登记 <b>${present + absent}</b>/${mems.length}
+    　到场 <b class="c-present">${present}</b>
+    　缺席 <b class="c-absent">${absent}</b>
+    　总时长 <b>${esc(fmtHours(total))}</b>`;
+}
+
+function bindRegisterCard(act) {
+  $('#btn-del-activity').addEventListener('click', () => {
+    if (confirm(`确定删除活动「${act.name}」？该活动的出勤登记记录将一并删除。`)) {
+      state.activities = state.activities.filter(a => a.id !== act.id);
+      state.records = state.records.filter(r => r.activityId !== act.id);
+      currentActivityId = null;
+      save();
+      renderRegister();
+    }
+  });
+  $('#group-filter')?.addEventListener('change', e => {
+    registerGroupFilter = e.target.value;
+    renderRegister();
+  });
+  $('#btn-all-present').addEventListener('click', () => {
+    visibleMembers().forEach(m => upsertRecord(act.id, m.id, { status: 'present' }));
+    renderRegister();
+  });
+  $('#btn-all-absent').addEventListener('click', () => {
+    visibleMembers().forEach(m => upsertRecord(act.id, m.id, { status: 'absent' }));
+    renderRegister();
+  });
+  $('#btn-clear').addEventListener('click', () => {
+    const scoped = registerGroupFilter !== 'all';
+    const tip = scoped
+      ? `确定清除本次活动中「${registerGroupFilter === 'none' ? '未分组' : groupName(registerGroupFilter)}」的登记？其他小组的登记不受影响。`
+      : '确定清除本次活动的全部登记？';
+    if (!confirm(tip)) return;
+    if (scoped) {
+      const ids = new Set(visibleMembers().map(m => m.id));
+      state.records = state.records.filter(r => r.activityId !== act.id || !ids.has(r.memberId));
+    } else {
+      state.records = state.records.filter(r => r.activityId !== act.id);
+    }
+    save();
+    renderRegister();
+  });
+
+  $$('#view-register tbody tr').forEach(tr => {
+    const mid = tr.dataset.mid;
+    $$('.seg-btn', tr).forEach(btn => btn.addEventListener('click', () => {
+      const rec = getRecord(act.id, mid);
+      if (rec && rec.status === btn.dataset.st) {
+        state.records = state.records.filter(r => r !== rec);
+        save();
+      } else {
+        upsertRecord(act.id, mid, { status: btn.dataset.st });
+      }
+      renderRegister();
+    }));
+
+    const hoursInput = $('.inp-hours', tr);
+    const roleInput = $('.inp-role', tr);
+
+    // 直接填写时长或分工时，自动标记为到场（不重渲染，避免输入失焦）
+    const ensurePresent = () => {
+      const rec = getRecord(act.id, mid);
+      if (rec && rec.status === 'present') return false;
+      upsertRecord(act.id, mid, { status: 'present' });
+      $$('.seg-btn', tr).forEach(b => {
+        const on = b.dataset.st === 'present';
+        b.classList.toggle('on', on);
+        b.classList.toggle('present', on);
+        b.classList.toggle('absent', false);
+      });
+      hoursInput.disabled = false;
+      roleInput.disabled = false;
+      return true;
+    };
+
+    // 超限即时提醒：输入框警示色 + 底部提示，不打断输入
+    const hoursHint = $('#reg-hint');
+    const setOverMax = over => {
+      hoursInput.classList.toggle('inp-over', over);
+      if (hoursHint) {
+        hoursHint.hidden = !over;
+        if (over) hoursHint.textContent = `已超出单次上限 ${MAX_HOURS} 小时，将按 ${fmtNum(MAX_HOURS)} 小时记录`;
+      }
+    };
+
+    hoursInput.addEventListener('input', e => {
+      ensurePresent();
+      const v = e.target.value.trim();
+      const { hours, overMax } = normalizeHours(v);
+      upsertRecord(act.id, mid, { status: 'present', hours: v === '' ? null : hours });
+      setOverMax(v !== '' && overMax);
+      refreshRegStatus(act);
+    });
+    // 失焦（或回车）时把显示值规范到 0.5 小时步长
+    hoursInput.addEventListener('change', e => {
+      const v = e.target.value.trim();
+      if (v === '') return;
+      const { hours } = normalizeHours(v);
+      e.target.value = fmtNum(hours);
+      upsertRecord(act.id, mid, { status: 'present', hours });
+      setOverMax(false);
+      refreshRegStatus(act);
+    });
+    roleInput.addEventListener('input', e => {
+      ensurePresent();
+      upsertRecord(act.id, mid, { status: 'present', role: e.target.value });
+      refreshRegStatus(act);
+    });
+  });
+}
+
+function refreshRegStatus(act) {
+  const el = $('#reg-summary');
+  if (el) el.innerHTML = regSummaryHtml(act);
+  // 填时长/分工不重渲染页面，这里同步刷新批量按钮的禁用态
+  const mems = visibleMembers();
+  const ids = new Set(mems.map(m => m.id));
+  const hasMembers = mems.length > 0;
+  const hasRecords = state.records.some(r => r.activityId === act.id && ids.has(r.memberId));
+  [['#btn-all-present', hasMembers, '当前范围暂无成员'],
+   ['#btn-all-absent', hasMembers, '当前范围暂无成员'],
+   ['#btn-clear', hasRecords, '当前范围暂无可清除的登记']].forEach(([sel, enabled, tip]) => {
+    const btn = $(sel);
+    if (!btn) return;
+    btn.disabled = !enabled;
+    if (enabled) btn.removeAttribute('title');
+    else btn.title = tip;
+  });
+}
+
+/* ---------- 成员汇总 ---------- */
+function groupStats() {
+  const rows = state.groups.map(g => ({
+    name: g.name,
+    mems: state.members.filter(m => m.groupId === g.id),
+  }));
+  const ungrouped = state.members.filter(m => !m.groupId);
+  if (ungrouped.length) rows.push({ name: '未分组', mems: ungrouped });
+  return rows.map(({ name, mems }) => {
+    const ids = new Set(mems.map(m => m.id));
+    const recs = state.records.filter(r => ids.has(r.memberId) && r.status);
+    const present = recs.filter(r => r.status === 'present');
+    const hours = present.reduce((s, r) => s + (Number(r.hours) || 0), 0);
+    return { name, memberCount: mems.length, presentCount: present.length,
+             absentCount: recs.length - present.length, hours };
+  });
+}
+
+function renderSummary() {
+  const root = $('#view-summary');
+  if (state.members.length === 0) {
+    root.innerHTML = `<div class="summary-head"><h2>成员参与汇总</h2></div>` +
+      card(emptyHint('还没有成员，请先到「成员管理」添加成员。'));
+    return;
+  }
+
+  const ranked = state.members
+    .map(m => ({ m, s: memberStats(m.id) }))
+    .sort((x, y) => y.s.presentCount - x.s.presentCount || x.m.name.localeCompare(y.m.name, 'zh'));
+
+  const cards = ranked.map(({ m, s }) => {
+    const tags = [...s.roleMap.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([t, c]) => `<span class="tag">${esc(t)}<i>×${c}</i></span>`).join('');
+    const histRows = s.history.length
+      ? s.history.map(({ r, a }) => `<tr>
+          <td>${esc(a.date)}</td>
+          <td>${esc(a.name)}</td>
+          <td>${r.status === 'present'
+            ? '<span class="badge present">到场</span>'
+            : '<span class="badge absent">缺席</span>'}</td>
+          <td>${r.status === 'present' ? fmtNum(r.hours) : '—'}</td>
+          <td>${r.status === 'present' ? esc(r.role || '—') : '—'}</td>
+        </tr>`).join('')
+      : `<tr><td colspan="5" class="muted center">暂无登记记录</td></tr>`;
+
+    return `<div class="member-card">
+      <details>
+        <summary>
+          <span class="m-name">${esc(m.name)}</span>
+          ${state.groups.length ? `<span class="tag tag-group">${esc(groupName(m.groupId))}</span>` : ''}
+          <span class="stat">参与 <b>${s.presentCount}</b> 次</span>
+          <span class="stat">累计 <b>${esc(fmtHours(s.hours))}</b></span>
+          <span class="tags">${tags || '<span class="muted">暂无分工记录</span>'}</span>
+          ${s.absentCount ? `<span class="absent-note">缺席 ${s.absentCount} 次</span>` : ''}
+          <span class="hint-link">查看历史 ›</span>
+        </summary>
+        <div class="table-wrap">
+          <table class="history-table">
+            <thead><tr><th>日期</th><th>活动</th><th>情况</th><th>时长（小时）</th><th>分工</th></tr></thead>
+            <tbody>${histRows}</tbody>
+          </table>
+        </div>
+      </details>
+    </div>`;
+  }).join('');
+
+  const groupCard = state.groups.length ? card(`
+    <h2>小组汇总</h2>
+    <div class="table-wrap">
+      <table class="history-table">
+        <thead><tr><th>小组</th><th>成员数</th><th>参与次数</th><th>缺席次数</th><th>累计时长</th></tr></thead>
+        <tbody>${groupStats().map(g => `<tr>
+          <td class="cell-name">${esc(g.name)}</td>
+          <td>${g.memberCount}</td>
+          <td>${g.presentCount}</td>
+          <td>${g.absentCount}</td>
+          <td>${esc(fmtHours(g.hours))}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>`) : '';
+
+  root.innerHTML = `<div class="summary-head">
+      <h2>成员参与汇总</h2>
+      <div class="muted">共 ${state.members.length} 名成员${state.groups.length
+        ? ` · ${state.groups.length} 个小组` : ''}，点击成员可展开历次参与记录</div>
+    </div>${groupCard}${cards}`;
+}
+
+/* ---------- 成员管理 ---------- */
+function renderMembers() {
+  const root = $('#view-members');
+  const groupOptions = state.groups
+    .map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('');
+
+  const list = state.members.map(m => {
+    const s = memberStats(m.id);
+    return `<li data-mid="${m.id}">
+      <span class="m-name">${esc(m.name)}</span>
+      ${state.groups.length ? `<select class="member-group" data-gmid="${m.id}" title="所属小组">
+        <option value="" ${m.groupId ? '' : 'selected'}>未分组</option>
+        ${state.groups.map(g => `<option value="${g.id}" ${m.groupId === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}
+      </select>` : ''}
+      <span class="muted">参与 ${s.presentCount} 次 · ${esc(fmtHours(s.hours))}</span>
+      <button class="btn btn-ghost-danger btn-sm" data-del="${m.id}">删除</button>
+    </li>`;
+  }).join('');
+
+  const groupItems = state.groups.map(g => {
+    const cnt = state.members.filter(m => m.groupId === g.id).length;
+    return `<li>
+      <span class="m-name">${esc(g.name)}</span>
+      <span class="muted">${cnt} 名成员</span>
+      <button class="btn btn-ghost-danger btn-sm" data-del-group="${g.id}">删除</button>
+    </li>`;
+  }).join('');
+
+  root.innerHTML = card(`
+    <h2>添加成员</h2>
+    <div class="add-member">
+      <input type="text" id="member-name" placeholder="输入成员姓名" maxlength="30">
+      ${state.groups.length ? `<select id="member-group" title="所属小组">
+        <option value="">未分组</option>${groupOptions}
+      </select>` : ''}
+      <button class="btn btn-primary" id="btn-add-member">添加成员</button>
+    </div>
+  `) + card(`
+    <h2>小组管理</h2>
+    <div class="add-member">
+      <input type="text" id="group-name" placeholder="输入小组名称，如：A组" maxlength="20">
+      <button class="btn btn-primary" id="btn-add-group">添加小组</button>
+    </div>
+    ${state.groups.length
+      ? `<ul class="member-list">${groupItems}</ul>`
+      : emptyHint('还没有小组，可在上方添加；设置小组后登记可按组筛选，汇总可按组统计。')}
+  `) + card(`
+    <h2>成员列表（${state.members.length}）</h2>
+    ${state.members.length
+      ? `<ul class="member-list">${list}</ul>`
+      : emptyHint('还没有成员，在上方添加。')}
+  `);
+
+  const add = () => {
+    const el = $('#member-name');
+    const name = el.value.trim();
+    if (!name) return;
+    if (state.members.some(m => m.name === name)) { alert('已存在同名成员'); el.select(); return; }
+    state.members.push({ id: uid(), name, groupId: $('#member-group')?.value || null });
+    save();
+    renderMembers();
+    $('#member-name')?.focus();
+  };
+  $('#btn-add-member').addEventListener('click', add);
+  $('#member-name').addEventListener('keydown', e => { if (e.key === 'Enter') add(); });
+
+  const addGroup = () => {
+    const el = $('#group-name');
+    const name = el.value.trim();
+    if (!name) return;
+    if (state.groups.some(g => g.name === name)) { alert('已存在同名小组'); el.select(); return; }
+    state.groups.push({ id: uid(), name });
+    save();
+    renderMembers();
+    $('#group-name')?.focus();
+  };
+  $('#btn-add-group').addEventListener('click', addGroup);
+  $('#group-name').addEventListener('keydown', e => { if (e.key === 'Enter') addGroup(); });
+
+  $$('#view-members [data-del-group]').forEach(btn => btn.addEventListener('click', () => {
+    const g = state.groups.find(x => x.id === btn.dataset.delGroup);
+    const cnt = state.members.filter(m => m.groupId === g.id).length;
+    const tip = cnt
+      ? `小组「${g.name}」下有 ${cnt} 名成员，删除小组后这些成员将变为未分组，确定删除？`
+      : `确定删除小组「${g.name}」？`;
+    if (!confirm(tip)) return;
+    state.groups = state.groups.filter(x => x.id !== g.id);
+    state.members.forEach(m => { if (m.groupId === g.id) m.groupId = null; });
+    save();
+    renderMembers();
+  }));
+
+  $$('#view-members .member-group').forEach(sel => sel.addEventListener('change', () => {
+    const m = state.members.find(x => x.id === sel.dataset.gmid);
+    if (!m) return;
+    m.groupId = sel.value || null;
+    save();
+    renderMembers();
+  }));
+
+  $$('#view-members [data-del]').forEach(btn => btn.addEventListener('click', () => {
+    const m = state.members.find(x => x.id === btn.dataset.del);
+    const used = state.records.filter(r => r.memberId === m.id && r.status).length;
+    const tip = used
+      ? `成员「${m.name}」已有 ${used} 条出勤记录，删除后将一并移除，确定删除？`
+      : `确定删除成员「${m.name}」？`;
+    if (!confirm(tip)) return;
+    state.members = state.members.filter(x => x.id !== m.id);
+    state.records = state.records.filter(r => r.memberId !== m.id);
+    save();
+    renderMembers();
+  }));
+}
+
+switchTab('register');
+</script>
+</body>
+</html>
